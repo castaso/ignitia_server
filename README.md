@@ -128,17 +128,23 @@ check:
    classification): eyes-open -> eyes-closed -> eyes-open. When a blink is
    detected it submits a short sequence of the captured frames as base64 JPEG
    in `liveness_frames` along with the check-in/out request.
-2. The server (`validate_liveness_frames` in `app/security.py`) requires a
+2. Before capturing, the app fetches a fresh single-use challenge
+   (`GET /api/Attendance/livenessChallenge`) and submits it as `challenge_id`
+   with the frames. The server consumes it on first use, so a pre-recorded
+   frame sequence cannot be replayed against a later check-in
+   (`LIVENESS_CHALLENGE_TTL_SECONDS` bounds each challenge's lifetime).
+3. The server (`validate_liveness_frames` in `app/security.py`) requires a
    minimum number of frames (`MIN_LIVENESS_FRAMES`), rejects frames that do
    not decode or are blank/featureless, and rejects sequences with no motion
    (a single still photo replayed N times produces identical consecutive
    frames, which fails `LIVENESS_MIN_DIVERSITY`).
-3. With `LIVENESS_REQUIRED=true` the check-in/out is rejected outright when no
+4. With `LIVENESS_REQUIRED=true` the check-in/out is rejected outright when no
    `liveness_frames` are supplied.
 
 The blink is detected on-device; the server validates the frame sequence was
-live and not a static replay. For the strongest protection combine this with a
-fresh per-attempt challenge nonce tied to the request.
+live, tied to a fresh challenge, and not a static replay. The motion + fresh-
+challenge checks also apply on web, where the app captures a short live burst
+in place of ML Kit blink classification.
 
 ## Roadmap / known gaps
 

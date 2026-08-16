@@ -105,8 +105,24 @@ def liveness_frames(n=4):
     return [make_face(c) for c in (colors * (n // len(colors) + 1))[:n]]
 
 
+def fresh_challenge(client, token):
+    r = client.get("/api/Attendance/livenessChallenge", headers=auth(token))
+    body = r.json()
+    assert body["isSuccess"] is True
+    return body["data"]["challengeId"]
+
+
+def test_liveness_challenge_endpoint_issues_id(client, token):
+    cid = fresh_challenge(client, token)
+    assert len(cid) >= 16
+
+
 def test_checkin_with_liveness_frames_succeeds(client, token):
-    body = checkin_body(date_time="2026-08-21", liveness_frames=liveness_frames())
+    body = checkin_body(
+        date_time="2026-08-21",
+        liveness_frames=liveness_frames(),
+        challenge_id=fresh_challenge(client, token),
+    )
     r = client.post("/api/Attendance/v2/checkin", json=body, headers=auth(token))
     assert r.json()["isSuccess"] is True
 
@@ -115,6 +131,7 @@ def test_checkin_static_replay_frames_rejected(client, token):
     body = checkin_body(
         date_time="2026-08-22",
         liveness_frames=[make_face()] * 4,
+        challenge_id=fresh_challenge(client, token),
     )
     r = client.post("/api/Attendance/v2/checkin", json=body, headers=auth(token))
     assert r.json()["isSuccess"] is False
@@ -125,6 +142,7 @@ def test_checkin_too_few_liveness_frames_rejected(client, token):
     body = checkin_body(
         date_time="2026-08-23",
         liveness_frames=[make_face(), make_face()],
+        challenge_id=fresh_challenge(client, token),
     )
     r = client.post("/api/Attendance/v2/checkin", json=body, headers=auth(token))
     assert r.json()["isSuccess"] is False
@@ -143,26 +161,74 @@ def test_checkin_liveness_required_rejects_missing_frames(client, token):
         settings.LIVENESS_REQUIRED = False
 
 
+def test_checkin_frames_without_challenge_rejected(client, token):
+    body = checkin_body(date_time="2026-08-26", liveness_frames=liveness_frames())
+    r = client.post("/api/Attendance/v2/checkin", json=body, headers=auth(token))
+    body = r.json()
+    assert body["isSuccess"] is False
+    assert "challenge" in body["message"].lower()
+
+
+def test_checkin_replayed_challenge_rejected(client, token):
+    cid = fresh_challenge(client, token)
+    body = checkin_body(
+        date_time="2026-08-27",
+        liveness_frames=liveness_frames(),
+        challenge_id=cid,
+    )
+    r = client.post("/api/Attendance/v2/checkin", json=body, headers=auth(token))
+    assert r.json()["isSuccess"] is True
+
+    body = checkin_body(
+        date_time="2026-08-28",
+        liveness_frames=liveness_frames(),
+        challenge_id=cid,
+    )
+    r = client.post("/api/Attendance/v2/checkin", json=body, headers=auth(token))
+    assert r.json()["isSuccess"] is False
+    assert "challenge" in r.json()["message"].lower()
+
+
 def test_checkout_with_liveness_frames_succeeds(client, token):
-    checkin = checkin_body(date_time="2026-08-25", liveness_frames=liveness_frames())
+    checkin = checkin_body(
+        date_time="2026-08-25",
+        liveness_frames=liveness_frames(),
+        challenge_id=fresh_challenge(client, token),
+    )
     r = client.post("/api/Attendance/v2/checkin", json=checkin, headers=auth(token))
     assert r.json()["isSuccess"] is True
     body = checkout_body(
         date_time="2026-08-25",
         liveness_frames=liveness_frames(),
+        challenge_id=fresh_challenge(client, token),
     )
     r = client.post("/api/Attendance/v2/checkout", json=body, headers=auth(token))
     assert r.json()["isSuccess"] is True
 
 
 def test_validate_liveness_blank_frame_rejected():
-    from app.security import validate_liveness_frames
+    import time
 
+    from app.security import _challenges, consume_liveness_challenge, validate_liveness_frames
+
+    cid = "blank-frame-challenge"
+    _challenges[cid] = {"expires_at": time.time() + 60, "used": False}
     ok, err = validate_liveness_frames(
-        [make_face((255, 255, 255), eyes=False)] * 4
+        [make_face((255, 255, 255), eyes=False)] * 4,
+        challenge_id=cid,
     )
     assert ok is False
     assert "blank" in err.lower()
+
+
+def test_expired_challenge_rejected():
+    import time
+
+    from app.security import _challenges, consume_liveness_challenge
+
+    cid = "expired-challenge"
+    _challenges[cid] = {"expires_at": time.time() - 1, "used": False}
+    assert consume_liveness_challenge(cid) is False
 
 
 def checkout_body(**overrides):

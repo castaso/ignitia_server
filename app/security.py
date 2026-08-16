@@ -20,6 +20,7 @@ import hmac
 import io
 import os
 import secrets
+import time
 from datetime import datetime, timedelta
 from math import asin, cos, radians, sin, sqrt
 
@@ -370,13 +371,48 @@ def _pixel_mae(img_a: Image.Image, img_b: Image.Image) -> float:
     return total / (64 * 64 * 255.0)
 
 
+# In-memory single-use liveness challenges. A fresh challenge must be fetched
+# right before the client captures the blink frames and is consumed on first
+# use, so a pre-recorded frame sequence plus an old challenge id cannot be
+# replayed against a later check-in.
+_challenges: dict[str, dict] = {}
+
+
+def issue_liveness_challenge() -> str:
+    """Create a short-lived, single-use challenge id and return it."""
+    now = time.time()
+    for cid in [cid for cid, entry in _challenges.items() if entry["expires_at"] < now]:
+        _challenges.pop(cid, None)
+    challenge_id = secrets.token_urlsafe(24)
+    _challenges[challenge_id] = {
+        "expires_at": now + settings.LIVENESS_CHALLENGE_TTL_SECONDS,
+        "used": False,
+    }
+    return challenge_id
+
+
+def consume_liveness_challenge(challenge_id: str | None) -> bool:
+    """Validate and single-use consume a challenge. False when missing,
+    unknown, expired or already used."""
+    if not challenge_id:
+        return False
+    entry = _challenges.pop(challenge_id, None)
+    if entry is None or entry["used"]:
+        return False
+    return entry["expires_at"] >= time.time()
+
+
 def validate_liveness_frames(
-    frames: list[str] | None, *, required: bool = False
+    frames: list[str] | None,
+    *,
+    required: bool = False,
+    challenge_id: str | None = None,
 ) -> tuple[bool, str]:
     """Validate the liveness frame sequence captured during the blink
     challenge. Returns (ok, error_message).
 
     Guarantees enforced:
+      - a fresh single-use challenge id must accompany the frames (anti-replay);
       - a minimum number of frames must be supplied;
       - every frame must decode and contain a non-flat (featureless) image;
       - consecutive frames must show real motion: at least one adjacent pair
@@ -394,6 +430,9 @@ def validate_liveness_frames(
                 "Live face frames were not provided.",
             )
         return True, ""
+
+    if not consume_liveness_challenge(challenge_id):
+        return False, "Invalid or expired liveness challenge. Please retry."
 
     if len(frames) < settings.MIN_LIVENESS_FRAMES:
         return (

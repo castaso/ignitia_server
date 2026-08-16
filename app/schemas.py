@@ -54,6 +54,9 @@ class AttendanceIn(BaseModel):
     # Base64 JPEG frames captured live during the blink challenge. When absent
     # and LIVENESS_REQUIRED is true the request is rejected.
     liveness_frames: Optional[List[str]] = None
+    # Single-use challenge id issued by /Attendance/livenessChallenge, tied to
+    # the liveness_frames to prevent replay of a pre-recorded sequence.
+    challenge_id: Optional[str] = None
     status: Optional[str] = None
     missinG_REASON: Optional[str] = None
     approval_status_id: Optional[int] = None

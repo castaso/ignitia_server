@@ -61,6 +61,10 @@ class Settings:
     # At least one consecutive frame pair must differ by this fraction of
     # average pixel intensity (0..1) to prove motion, not a replayed still.
     LIVENESS_MIN_DIVERSITY = float(_env("LIVENESS_MIN_DIVERSITY", "0.03"))
+    # A server-issued single-use challenge must accompany the liveness frames.
+    # Fresh challenges are required so pre-recorded frame sequences cannot be
+    # replayed against a later check-in.
+    LIVENESS_CHALLENGE_TTL_SECONDS = int(_env("LIVENESS_CHALLENGE_TTL_SECONDS", "60"))
 
     DATABASE_URL = _env("DATABASE_URL", "sqlite:///./ignitia.db")
 

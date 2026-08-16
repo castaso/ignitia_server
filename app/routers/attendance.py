@@ -32,6 +32,7 @@ from ..schemas import (
 )
 from ..security import (
     is_within_office,
+    issue_liveness_challenge,
     store_face_snapshot,
     validate_liveness_frames,
     verify_face,
@@ -83,6 +84,14 @@ def _resolve_employee_id(auth_employee: Employee, body_id: int | None) -> int:
 # ---------------------------------------------------------------------------
 
 
+@router.get("/Attendance/livenessChallenge")
+def liveness_challenge(auth: Employee = Depends(get_current_employee)):
+    """Issue a short-lived, single-use challenge that must accompany the
+    liveness frames on the next check-in / check-out. Requires the client to
+    capture fresh frames for each attempt."""
+    return ok(data={"challengeId": issue_liveness_challenge()})
+
+
 @router.post("/Attendance/v2/checkin")
 def check_in(
     payload: AttendanceIn,
@@ -105,7 +114,9 @@ def check_in(
 
     # 3. Liveness (blink challenge) frame validation.
     ok_liveness, liveness_error = validate_liveness_frames(
-        payload.liveness_frames, required=settings.LIVENESS_REQUIRED
+        payload.liveness_frames,
+        required=settings.LIVENESS_REQUIRED,
+        challenge_id=payload.challenge_id,
     )
     if not ok_liveness:
         return fail(liveness_error)
@@ -176,7 +187,9 @@ def check_out(
 
     # 3. Liveness (blink challenge) frame validation.
     ok_liveness, liveness_error = validate_liveness_frames(
-        payload.liveness_frames, required=settings.LIVENESS_REQUIRED
+        payload.liveness_frames,
+        required=settings.LIVENESS_REQUIRED,
+        challenge_id=payload.challenge_id,
     )
     if not ok_liveness:
         return fail(liveness_error)
