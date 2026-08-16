@@ -100,22 +100,37 @@ Matching `lib/repo/api_service.dart`:
 1. The employee registers a reference photo (`PUT /api/Employees/referenceFace`).
 2. On check-in/out the app sends its captured face as base64 JPEG
    (`check_in_face` / `check_out_face`).
-3. The server computes a perceptual hash (dHash) + grayscale histogram
-   similarity between the reference and the capture; scores below
-   `FACE_SIMILARITY_THRESHOLD` are rejected with the client's
-   "proxy attendance is blocked" message.
-4. Accepted captures are decoded and saved to `uploads/faces/`.
+3. The server detects the face (OpenCV YuNet) and compares embeddings with
+   **SFace** (cosine similarity, threshold `FACE_EMBEDDING_THRESHOLD`). When
+   the SFace models are unavailable or no face is detected (e.g. the synthetic
+   demo face), it falls back to a perceptual-hash + histogram comparison of
+   the face region (`FACE_SIMILARITY_THRESHOLD`).
+4. Blank / featureless submissions are rejected outright.
+5. Accepted captures are decoded and saved to `uploads/faces/`.
 
-This is intentionally a lightweight baseline (Pillow only, suitable for the
-limited sandbox). For production, plug a real face-embedding model
-(FaceNet/ArcFace/InsightFace) behind `app/security.py:verify_face`.
+The models are bundled in `app/data/` (YuNet `face_detection_yunet.onnx`,
+SFace `face_recognition_sface.onnx`); swap the paths via `FACE_DETECTOR_MODEL`
+/ `FACE_EMBEDDING_MODEL`.
 
 ## Roadmap / known gaps
 
 - No Alembic migrations yet (tables are created with `create_all`).
 - `ForgetPassword` issues a temporary password logged to the console instead
   of emailing a reset link.
-- Face verification is a perceptual-hash baseline, not a production matcher.
+- Face verification falls back to a perceptual-hash baseline only when the
+  SFace embedding models are unavailable or no face is detected; the bundled
+  SFace + YuNet models provide real embedding-based matching.
 - The client's hard-coded base URL `http://27.147.159.195:86/api/` must point
   at this server (e.g. via a local override / reverse proxy in the preview
   environment).
+
+## Tests
+
+```bash
+pytest tests/ -v
+```
+
+The suite spins the app up against an isolated temp database and exercises
+the exact wire contract used by the Flutter client (login/JWT, 401 handling,
+geo-fence and face blocks, check-in/out, search, summary, edit-request
+approval, leave, overtime, payslip).

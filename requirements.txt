@@ -3,4 +3,11 @@ uvicorn[standard]>=0.29,<1.0
 sqlalchemy>=2.0,<3.0
 pyjwt>=2.8,<3.0
 pillow>=10.0,<12.0
+opencv-python-headless>=4.8
+numpy>=1.24
 python-multipart>=0.0.9
+python-dotenv>=1.0
+
+# Development / tests
+pytest>=8.0
+httpx>=0.27

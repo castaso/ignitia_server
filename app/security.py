@@ -5,11 +5,12 @@ of truth). The client only proves that a live single face was present and
 that the device reported coordinates inside range; the server re-validates
 both against the configured office and the employee's registered photo.
 
-Face verification uses a perceptual hash (dHash) + colour-histogram
-similarity. It is a lightweight, dependency-light baseline (only Pillow) and
-is NOT a state-of-the-art face matcher - swap
-``FACE_VERIFICATION_METHOD`` for a real embedding model (e.g. FaceNet/ArcFace)
-in production.
+Face verification: when the bundled SFace (OpenCV FaceRecognizerSF) and YuNet
+(OpenCV FaceDetectorYN) models are present and a face is detected in both
+images, the capture is matched against the reference photo by embedding
+cosine similarity (threshold 0.363 by default). Otherwise it falls back to a
+perceptual hash (dHash) + colour-histogram comparison on the detected / centre
+face region. Featureless (blank / solid-colour) submissions are rejected.
 """
 
 import base64
@@ -23,7 +24,7 @@ from datetime import datetime, timedelta
 from math import asin, cos, radians, sin, sqrt
 
 import jwt
-from PIL import Image, ImageOps
+from PIL import Image, ImageOps, ImageStat
 
 from .config import settings
 
@@ -164,17 +165,141 @@ def _hamming(a: str, b: str) -> float:
     return 1.0 - (diff / len(a))
 
 
+try:
+    import cv2
+except Exception:
+    cv2 = None
+
+
+def _yunet_detector():
+    """Lazily build the YuNet face detector (returns None when unavailable)."""
+    if cv2 is None:
+        return None
+    try:
+        if not os.path.exists(settings.FACE_DETECTOR_MODEL):
+            return None
+        return cv2.FaceDetectorYN_create(
+            settings.FACE_DETECTOR_MODEL, "", (320, 320)
+        )
+    except Exception:
+        return None
+
+
+def _sface_recognizer():
+    """Lazily build the SFace embedding recognizer (None when unavailable)."""
+    if cv2 is None:
+        return None
+    try:
+        if not os.path.exists(settings.FACE_EMBEDDING_MODEL):
+            return None
+        return cv2.FaceRecognizerSF_create(
+            settings.FACE_EMBEDDING_MODEL, ""
+        )
+    except Exception:
+        return None
+
+
+def _detect_bbox(img: Image.Image):
+    """Return (x, y, w, h) ints of the largest detected face, or None when the
+    detector is unavailable or no face is found."""
+    detector = _yunet_detector()
+    if detector is None:
+        return None
+    try:
+        import numpy as np
+
+        bgr = cv2.cvtColor(np.asarray(img), cv2.COLOR_RGB2BGR)
+        height, width = bgr.shape[:2]
+        detector.setInputSize((width, height))
+        _ok, faces = detector.detect(bgr)
+        if faces is None or len(faces) == 0:
+            return None
+        largest = max(faces, key=lambda f: float(f[2]) * float(f[3]))
+        return (int(largest[0]), int(largest[1]), int(largest[2]), int(largest[3]))
+    except Exception:
+        return None
+
+
+def _sface_match(img_a: Image.Image, img_b: Image.Image) -> float | None:
+    """Cosine similarity via YuNet detection + SFace embeddings, or None when
+    the models are unavailable or a face is not detected in either image."""
+    detector = _yunet_detector()
+    recognizer = _sface_recognizer()
+    if detector is None or recognizer is None:
+        return None
+    try:
+        import numpy as np
+
+        def embed(img: Image.Image):
+            bgr = cv2.cvtColor(np.asarray(img), cv2.COLOR_RGB2BGR)
+            height, width = bgr.shape[:2]
+            detector.setInputSize((width, height))
+            _ok, faces = detector.detect(bgr)
+            if faces is None or len(faces) == 0:
+                return None
+            largest = max(faces, key=lambda f: float(f[2]) * float(f[3]))
+            aligned = recognizer.alignCrop(bgr, largest)
+            return recognizer.feature(aligned)
+
+        feat_a = embed(img_a)
+        feat_b = embed(img_b)
+        if feat_a is None or feat_b is None:
+            return None
+        return float(recognizer.match(feat_a, feat_b, cv2.FACE_RECOGNIZER_SF_FR_COSINE))
+    except Exception:
+        return None
+
+
+def _face_region(img: Image.Image) -> Image.Image:
+    """Crop to the detected face (with a margin). If no face is detected, fall
+    back to the centre 60% of the image - selfie captures are face-centred."""
+    detected = _detect_bbox(img)
+    width, height = img.size
+    if detected is not None:
+        x, y, w, h = detected
+        margin = 0.2
+        left = max(0, int(x - w * margin))
+        top = max(0, int(y - h * margin))
+        right = min(width, int(x + w * (1 + 2 * margin)))
+        bottom = min(height, int(y + h * (1 + 2 * margin)))
+        if right - left > 8 and bottom - top > 8:
+            return img.crop((left, top, right, bottom))
+    cx, cy = width // 2, height // 2
+    box_w = max(8, int(width * 0.3))
+    box_h = max(8, int(height * 0.3))
+    return img.crop(
+        (cx - box_w, cy - box_h, cx + box_w, cy + box_h)
+    )
+
+
 def face_similarity(base64_a: str | None, base64_b: str | None) -> float | None:
-    """Return similarity in [0,1] or None when either image is undecodable."""
+    """Return similarity in [0,1] or None when either image is undecodable.
+
+    Faces are cropped (YuNet face detection, centre-crop fallback) before
+    comparison so the background does not dominate the score.
+    """
     img_a = _decode_image(base64_a)
     img_b = _decode_image(base64_b)
     if img_a is None or img_b is None:
         return None
-    dhash_a = _dhash(img_a)
-    dhash_b = _dhash(img_b)
+    face_a = _face_region(img_a)
+    face_b = _face_region(img_b)
+    dhash_a = _dhash(face_a)
+    dhash_b = _dhash(face_b)
     # 50% perceptual hash + 50% grayscale histogram similarity.
-    score = 0.5 * _hamming(dhash_a, dhash_b) + 0.5 * _histogram_similarity(img_a, img_b)
+    score = 0.5 * _hamming(dhash_a, dhash_b) + 0.5 * _histogram_similarity(face_a, face_b)
     return max(0.0, min(1.0, score))
+
+
+def _is_featureless(img: Image.Image, variance_threshold: float = 10.0) -> bool:
+    """True when the (face) region is essentially a flat colour. Featureless
+    submissions (blank / solid-colour frames) would otherwise share a nearly
+    identical perceptual hash and could pass verification."""
+    try:
+        stddev = ImageStat.Stat(img.convert("L")).stddev[0]
+        return bool(stddev < variance_threshold)
+    except Exception:
+        return False
 
 
 def verify_face(reference_base64: str | None, capture_base64: str | None) -> tuple[bool, str]:
@@ -189,6 +314,22 @@ def verify_face(reference_base64: str | None, capture_base64: str | None) -> tup
             "No reference face is registered for this employee. "
             "Face verification cannot be performed.",
         )
+    img_a = _decode_image(reference_base64)
+    img_b = _decode_image(capture_base64)
+    if img_a is None or img_b is None:
+        return False, "The submitted face image is invalid or could not be decoded."
+    if _is_featureless(_face_region(img_a)) or _is_featureless(_face_region(img_b)):
+        return False, "The submitted face image is invalid (blank or featureless)."
+
+    # Primary: SFace embedding cosine similarity (when the models are bundled
+    # and a face is detected in both images).
+    sface_score = _sface_match(img_a, img_b)
+    if sface_score is not None:
+        if sface_score < settings.FACE_EMBEDDING_THRESHOLD:
+            return False, settings.MESSAGE_FACE_FAILED
+        return True, ""
+
+    # Fallback: perceptual hash + histogram on the face region.
     score = face_similarity(reference_base64, capture_base64)
     if score is None:
         return False, "The submitted face image is invalid or could not be decoded."

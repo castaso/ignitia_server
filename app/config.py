@@ -32,6 +32,17 @@ class Settings:
     FACE_SIMILARITY_THRESHOLD = float(_env("FACE_SIMILARITY_THRESHOLD", "0.72"))
     UPLOAD_DIR = _env("UPLOAD_DIR", "uploads/faces")
 
+    # Face embedding matcher (SFace via OpenCV FaceRecognizerSF). When both
+    # model files exist, face verification uses embeddings instead of the
+    # perceptual-hash baseline. Cosine threshold as recommended for SFace.
+    FACE_DETECTOR_MODEL = _env(
+        "FACE_DETECTOR_MODEL", "app/data/face_detection_yunet.onnx"
+    )
+    FACE_EMBEDDING_MODEL = _env(
+        "FACE_EMBEDDING_MODEL", "app/data/face_recognition_sface.onnx"
+    )
+    FACE_EMBEDDING_THRESHOLD = float(_env("FACE_EMBEDDING_THRESHOLD", "0.363"))
+
     DATABASE_URL = _env("DATABASE_URL", "sqlite:///./ignitia.db")
 
     # Approval status ids (convention used by the Flutter client).
