@@ -138,3 +138,14 @@ class UserLeave(Base):
     reason = Column(String(1000), default="")
     total_days = Column(Integer, default=0)
     is_approved = Column(Integer, default=0)
+
+
+class PasswordResetToken(Base):
+    __tablename__ = "password_reset_tokens"
+
+    id = Column(Integer, primary_key=True, index=True)
+    email = Column(String(200), index=True)
+    token_hash = Column(String(200), unique=True)
+    expires_at = Column(DateTime)
+    used = Column(Integer, default=0)
+    created_at = Column(DateTime, default=datetime.utcnow)

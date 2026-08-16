@@ -81,6 +81,21 @@ def decode_token(token: str):
 
 
 # ---------------------------------------------------------------------------
+# Password reset tokens (email-based)
+# ---------------------------------------------------------------------------
+
+
+def generate_reset_token() -> str:
+    """Cryptographically random reset token shown only in the reset email."""
+    return secrets.token_urlsafe(32)
+
+
+def hash_reset_token(token: str) -> str:
+    """Store only a digest of the reset token in the database."""
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+# ---------------------------------------------------------------------------
 # Geo-fence (haversine distance in metres)
 # ---------------------------------------------------------------------------
 

@@ -43,6 +43,15 @@ class Settings:
     )
     FACE_EMBEDDING_THRESHOLD = float(_env("FACE_EMBEDDING_THRESHOLD", "0.363"))
 
+    # Password reset email delivery. Without SMTP_* values the reset link is
+    # only written to the server log (dev mode).
+    SMTP_HOST = _env("SMTP_HOST", "")
+    SMTP_PORT = int(_env("SMTP_PORT", "587"))
+    SMTP_USER = _env("SMTP_USER", "")
+    SMTP_PASSWORD = _env("SMTP_PASSWORD", "")
+    SMTP_FROM = _env("SMTP_FROM", "no-reply@ignitia.local")
+    RESET_TOKEN_TTL_MINUTES = int(_env("RESET_TOKEN_TTL_MINUTES", "30"))
+
     DATABASE_URL = _env("DATABASE_URL", "sqlite:///./ignitia.db")
 
     # Approval status ids (convention used by the Flutter client).

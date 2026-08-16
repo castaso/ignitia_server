@@ -219,3 +219,62 @@ def test_reference_face_registration(client, token):
     r = client.put("/api/Employees/referenceFace", json={"face_base64": make_face()},
                    headers=auth(token))
     assert r.json()["isSuccess"] is True
+
+
+def test_forget_and_reset_password(client, monkeypatch):
+    captured = {}
+
+    def fake_send(to, subject, body):
+        captured["body"] = body
+        return True
+
+    monkeypatch.setattr("app.routers.login.send_email", fake_send)
+
+    r = client.post("/api/Login/ForgetPassword", params={"email": "demo@ignitia.local"})
+    assert r.json()["isSuccess"] is True
+
+    token = None
+    for line in captured["body"].splitlines():
+        if "token=" in line:
+            token = line.split("token=")[1].strip()
+    assert token
+
+    r = client.post("/api/Login/ResetPassword",
+                    json={"email": "demo@ignitia.local", "token": token,
+                          "newPassword": "newpass123"})
+    assert r.json()["isSuccess"] is True
+
+    # old password rejected, new password accepted
+    assert client.post("/api/Login", json={"email": "demo@ignitia.local",
+                                           "password": "demo1234"}).status_code == 401
+    assert client.post("/api/Login", json={"email": "demo@ignitia.local",
+                                           "password": "newpass123"}).json()["isSuccess"] is True
+
+    # a used token must not work again
+    r = client.post("/api/Login/ResetPassword",
+                    json={"email": "demo@ignitia.local", "token": token,
+                          "newPassword": "another123"})
+    assert r.json()["isSuccess"] is False
+
+    # restore the demo password so session-scoped fixtures keep working
+    captured.clear()
+    client.post("/api/Login/ForgetPassword", params={"email": "demo@ignitia.local"})
+    for line in captured["body"].splitlines():
+        if "token=" in line:
+            restore_token = line.split("token=")[1].strip()
+    r = client.post("/api/Login/ResetPassword",
+                    json={"email": "demo@ignitia.local", "token": restore_token,
+                          "newPassword": "demo1234"})
+    assert r.json()["isSuccess"] is True
+
+
+def test_forget_password_does_not_enumerate(client, monkeypatch):
+    captured = {}
+
+    def fake_send(to, subject, body):
+        captured["sent"] = True
+
+    monkeypatch.setattr("app.routers.login.send_email", fake_send)
+    r = client.post("/api/Login/ForgetPassword", params={"email": "ghost@ignitia.local"})
+    assert r.json()["isSuccess"] is True  # same response for unknown email
+    assert "sent" not in captured  # no email actually sent

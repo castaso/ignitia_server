@@ -70,7 +70,8 @@ registration UI is expected to be added to the app).
 
 Matching `lib/repo/api_service.dart`:
 
-- **Auth**: `POST /Login`, `POST /Login/ChangePassword`, `POST /Login/ForgetPassword?email=`
+- **Auth**: `POST /Login`, `POST /Login/ChangePassword`, `POST /Login/ForgetPassword?email=`,
+  plus server-side `POST /Login/ResetPassword` (reset-link flow, see below)
 - **Attendance**: `POST /Attendance/v2/checkin`, `POST /Attendance/v2/checkout`,
   `GET /Attendance/searchAttendanceByDate`, `GET /Attendance/userAttendanceSummary`,
   `PUT /Attendance/requestEditAttendance`, `GET /Attendance/getAttendanceRequest`,
@@ -95,6 +96,16 @@ Matching `lib/repo/api_service.dart`:
 - Business failures (geo-fence / face / duplicate check-in) return **HTTP 200**
   with `isSuccess: false` and a human-readable `message`, which the app shows.
 
+### Password reset flow
+
+`POST /Login/ForgetPassword?email=` always returns success (anti-account-
+enumeration). When the email exists it issues a one-time, expiring reset token
+(only its hash is stored) and emails a reset link. Without SMTP config the link
+is written to the server log instead. The link target is
+`POST /Login/ResetPassword` with body `{email, token, newPassword}`. Configure
+`SMTP_HOST` / `SMTP_USER` / `SMTP_PASSWORD` / `SMTP_FROM` in `.env` to send
+real mail.
+
 ## Face verification - how it works
 
 1. The employee registers a reference photo (`PUT /api/Employees/referenceFace`).
@@ -115,8 +126,8 @@ SFace `face_recognition_sface.onnx`); swap the paths via `FACE_DETECTOR_MODEL`
 ## Roadmap / known gaps
 
 - No Alembic migrations yet (tables are created with `create_all`).
-- `ForgetPassword` issues a temporary password logged to the console instead
-  of emailing a reset link.
+- Password reset links are only emailed when SMTP is configured; otherwise the
+  link is logged (dev mode).
 - Face verification falls back to a perceptual-hash baseline only when the
   SFace embedding models are unavailable or no face is detected; the bundled
   SFace + YuNet models provide real embedding-based matching.
