@@ -51,6 +51,9 @@ class AttendanceIn(BaseModel):
     check_out_address: Optional[str] = None
     check_in_face: Optional[str] = None
     check_out_face: Optional[str] = None
+    # Base64 JPEG frames captured live during the blink challenge. When absent
+    # and LIVENESS_REQUIRED is true the request is rejected.
+    liveness_frames: Optional[List[str]] = None
     status: Optional[str] = None
     missinG_REASON: Optional[str] = None
     approval_status_id: Optional[int] = None

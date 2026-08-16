@@ -119,9 +119,26 @@ real mail.
 4. Blank / featureless submissions are rejected outright.
 5. Accepted captures are decoded and saved to `uploads/faces/`.
 
-The models are bundled in `app/data/` (YuNet `face_detection_yunet.onnx`,
-SFace `face_recognition_sface.onnx`); swap the paths via `FACE_DETECTOR_MODEL`
-/ `FACE_EMBEDDING_MODEL`.
+## Liveness (blink challenge) - how it works
+
+Real-time liveness prevents a static or replayed photo from passing the face
+check:
+
+1. The app runs a blink challenge on the live camera stream (ML Kit eye-state
+   classification): eyes-open -> eyes-closed -> eyes-open. When a blink is
+   detected it submits a short sequence of the captured frames as base64 JPEG
+   in `liveness_frames` along with the check-in/out request.
+2. The server (`validate_liveness_frames` in `app/security.py`) requires a
+   minimum number of frames (`MIN_LIVENESS_FRAMES`), rejects frames that do
+   not decode or are blank/featureless, and rejects sequences with no motion
+   (a single still photo replayed N times produces identical consecutive
+   frames, which fails `LIVENESS_MIN_DIVERSITY`).
+3. With `LIVENESS_REQUIRED=true` the check-in/out is rejected outright when no
+   `liveness_frames` are supplied.
+
+The blink is detected on-device; the server validates the frame sequence was
+live and not a static replay. For the strongest protection combine this with a
+fresh per-attempt challenge nonce tied to the request.
 
 ## Roadmap / known gaps
 

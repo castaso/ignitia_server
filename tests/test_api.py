@@ -95,6 +95,76 @@ def test_checkin_blank_face_rejected(client, token):
     assert "invalid" in r.json()["message"].lower()
 
 
+# --- liveness (blink challenge) frames -----------------------------------
+
+
+def liveness_frames(n=4):
+    """Distinct-but-similar frames: slightly different skin tones so the
+    consecutive-pair pixel delta is clearly above the motion threshold."""
+    colors = [(235, 200, 170), (228, 192, 158), (220, 180, 145), (235, 200, 170)]
+    return [make_face(c) for c in (colors * (n // len(colors) + 1))[:n]]
+
+
+def test_checkin_with_liveness_frames_succeeds(client, token):
+    body = checkin_body(date_time="2026-08-21", liveness_frames=liveness_frames())
+    r = client.post("/api/Attendance/v2/checkin", json=body, headers=auth(token))
+    assert r.json()["isSuccess"] is True
+
+
+def test_checkin_static_replay_frames_rejected(client, token):
+    body = checkin_body(
+        date_time="2026-08-22",
+        liveness_frames=[make_face()] * 4,
+    )
+    r = client.post("/api/Attendance/v2/checkin", json=body, headers=auth(token))
+    assert r.json()["isSuccess"] is False
+    assert "no motion" in r.json()["message"].lower()
+
+
+def test_checkin_too_few_liveness_frames_rejected(client, token):
+    body = checkin_body(
+        date_time="2026-08-23",
+        liveness_frames=[make_face(), make_face()],
+    )
+    r = client.post("/api/Attendance/v2/checkin", json=body, headers=auth(token))
+    assert r.json()["isSuccess"] is False
+    assert "at least" in r.json()["message"].lower()
+
+
+def test_checkin_liveness_required_rejects_missing_frames(client, token):
+    settings.LIVENESS_REQUIRED = True
+    try:
+        body = checkin_body(date_time="2026-08-24")
+        r = client.post("/api/Attendance/v2/checkin", json=body, headers=auth(token))
+        body = r.json()
+        assert body["isSuccess"] is False
+        assert "liveness" in body["message"].lower()
+    finally:
+        settings.LIVENESS_REQUIRED = False
+
+
+def test_checkout_with_liveness_frames_succeeds(client, token):
+    checkin = checkin_body(date_time="2026-08-25", liveness_frames=liveness_frames())
+    r = client.post("/api/Attendance/v2/checkin", json=checkin, headers=auth(token))
+    assert r.json()["isSuccess"] is True
+    body = checkout_body(
+        date_time="2026-08-25",
+        liveness_frames=liveness_frames(),
+    )
+    r = client.post("/api/Attendance/v2/checkout", json=body, headers=auth(token))
+    assert r.json()["isSuccess"] is True
+
+
+def test_validate_liveness_blank_frame_rejected():
+    from app.security import validate_liveness_frames
+
+    ok, err = validate_liveness_frames(
+        [make_face((255, 255, 255), eyes=False)] * 4
+    )
+    assert ok is False
+    assert "blank" in err.lower()
+
+
 def checkout_body(**overrides):
     body = {
         "id": 0,

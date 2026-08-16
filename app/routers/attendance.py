@@ -30,7 +30,12 @@ from ..schemas import (
     fail,
     ok,
 )
-from ..security import is_within_office, store_face_snapshot, verify_face
+from ..security import (
+    is_within_office,
+    store_face_snapshot,
+    validate_liveness_frames,
+    verify_face,
+)
 
 router = APIRouter()
 
@@ -98,6 +103,13 @@ def check_in(
     if not ok_face:
         return fail(error)
 
+    # 3. Liveness (blink challenge) frame validation.
+    ok_liveness, liveness_error = validate_liveness_frames(
+        payload.liveness_frames, required=settings.LIVENESS_REQUIRED
+    )
+    if not ok_liveness:
+        return fail(liveness_error)
+
     day = date_key(payload.date_time) or datetime.now().strftime("%Y-%m-%d")
     existing = (
         db.query(Attendance)
@@ -161,6 +173,13 @@ def check_out(
     ok_face, error = verify_face(employee.reference_face, payload.check_out_face)
     if not ok_face:
         return fail(error)
+
+    # 3. Liveness (blink challenge) frame validation.
+    ok_liveness, liveness_error = validate_liveness_frames(
+        payload.liveness_frames, required=settings.LIVENESS_REQUIRED
+    )
+    if not ok_liveness:
+        return fail(liveness_error)
 
     day = date_key(payload.date_time) or datetime.now().strftime("%Y-%m-%d")
     record = (

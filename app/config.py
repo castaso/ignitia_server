@@ -52,6 +52,16 @@ class Settings:
     SMTP_FROM = _env("SMTP_FROM", "no-reply@ignitia.local")
     RESET_TOKEN_TTL_MINUTES = int(_env("RESET_TOKEN_TTL_MINUTES", "30"))
 
+    # Real-time liveness (blink challenge) frame validation. The client sends a
+    # short sequence of frames captured live around the blink; the server
+    # rejects static/replayed images. When LIVENESS_REQUIRED is true, check-in
+    # / check-out without liveness frames are rejected outright.
+    LIVENESS_REQUIRED = _env("LIVENESS_REQUIRED", "false").lower() in ("1", "true", "yes")
+    MIN_LIVENESS_FRAMES = int(_env("MIN_LIVENESS_FRAMES", "3"))
+    # At least one consecutive frame pair must differ by this fraction of
+    # average pixel intensity (0..1) to prove motion, not a replayed still.
+    LIVENESS_MIN_DIVERSITY = float(_env("LIVENESS_MIN_DIVERSITY", "0.03"))
+
     DATABASE_URL = _env("DATABASE_URL", "sqlite:///./ignitia.db")
 
     # Approval status ids (convention used by the Flutter client).

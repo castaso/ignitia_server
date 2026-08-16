@@ -354,6 +354,74 @@ def verify_face(reference_base64: str | None, capture_base64: str | None) -> tup
 
 
 # ---------------------------------------------------------------------------
+# Liveness (blink challenge) frame validation
+# ---------------------------------------------------------------------------
+
+
+def _pixel_mae(img_a: Image.Image, img_b: Image.Image) -> float:
+    """Mean absolute pixel difference (0..1) between two down-scaled
+    grayscale images. Two identical frames produce 0.0; a blink or head
+    motion produces a measurable delta in the eye region."""
+    a = img_a.convert("L").resize((64, 64))
+    b = img_b.convert("L").resize((64, 64))
+    pa = a.getdata()
+    pb = b.getdata()
+    total = sum(abs(x - y) for x, y in zip(pa, pb))
+    return total / (64 * 64 * 255.0)
+
+
+def validate_liveness_frames(
+    frames: list[str] | None, *, required: bool = False
+) -> tuple[bool, str]:
+    """Validate the liveness frame sequence captured during the blink
+    challenge. Returns (ok, error_message).
+
+    Guarantees enforced:
+      - a minimum number of frames must be supplied;
+      - every frame must decode and contain a non-flat (featureless) image;
+      - consecutive frames must show real motion: at least one adjacent pair
+        must differ enough that a single replayed still photo is rejected.
+
+    The blink itself is detected client-side (ML Kit eye classification) and
+    the frames submitted here prove the capture was a live sequence rather
+    than one static image replayed N times.
+    """
+    if not frames:
+        if required:
+            return (
+                False,
+                "Liveness verification is required. "
+                "Live face frames were not provided.",
+            )
+        return True, ""
+
+    if len(frames) < settings.MIN_LIVENESS_FRAMES:
+        return (
+            False,
+            f"Liveness verification requires at least "
+            f"{settings.MIN_LIVENESS_FRAMES} live frames.",
+        )
+
+    decoded: list[Image.Image] = []
+    for frame in frames:
+        img = _decode_image(frame)
+        if img is None:
+            return False, "A liveness frame could not be decoded."
+        if _is_featureless(_face_region(img)):
+            return False, "A liveness frame is blank or featureless."
+        decoded.append(img)
+
+    pair_deltas = [_pixel_mae(a, b) for a, b in zip(decoded, decoded[1:])]
+    max_delta = max(pair_deltas) if pair_deltas else 0.0
+    if max_delta < settings.LIVENESS_MIN_DIVERSITY:
+        return (
+            False,
+            "Liveness frames show no motion (static or replayed image).",
+        )
+    return True, ""
+
+
+# ---------------------------------------------------------------------------
 # Face snapshot storage
 # ---------------------------------------------------------------------------
 
