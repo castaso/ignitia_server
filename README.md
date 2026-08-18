@@ -1,6 +1,6 @@
 # ignitia_server
 
-Backend for the **i_employment** Flutter app (client repo: `castaso/ignitia`),
+Backend for the **i_employment** Flutter app (client repo: `castaso/ignitia_android`),
 with the headline feature **"prevent proxy attendance"** implemented
 **server-side**:
 
