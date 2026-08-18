@@ -7,6 +7,7 @@ It is idempotent: existing demo data is left untouched.
 """
 
 import io
+from datetime import datetime
 
 from PIL import Image, ImageDraw
 
@@ -51,6 +52,7 @@ def main() -> None:
             type_id=2,
             supervisor_id=1,
             status_id=1,
+            joining_date=datetime(2024, 1, 1),
             basic_salary=30000.0,
         )
         demo.password_hash = hash_password("demo1234")
@@ -64,6 +66,7 @@ def main() -> None:
             email="admin@ignitia.local",
             type_id=1,
             status_id=1,
+            joining_date=datetime(2024, 1, 1),
             basic_salary=0.0,
         )
         admin.password_hash = hash_password("admin1234")
